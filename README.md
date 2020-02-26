@@ -1,2 +1,273 @@
 # albert-guide
-a guide to albert
+
+A guide to pretrain a new own albert model from scretch
+
+# Pretaining ALBERT models from scretch
+
+> A detailed guide for to get started with ALBERT models as they where intended by google-research.
+> Hints for usages in prod can be found at the [end]() of this guide.
+
+# Stages
+
+* [__Environments__, __setups__ and __configurations__](#environments-setups-and-configurations)
+* [__Tokenizers__, __Raws__ model tasks and __records__](#tokenizers-raws-model-tasks-and-records)
+* [Main entry __run_pretraining__](#main-entry-run-pretraining)
+
+
+# Environments setups and configuration objects
+
+## Environments
+
+Everything the environment needs to offer is documented in requirements.txt. Here an example where ```==X.Y.Z``` refers
+to the satisfied version of this dependency package.
+
+    transformers
+    tensorflow==1.15.2
+    tensorflow-gpu==1.15.2
+    tensorflow-estimator==1.15.1
+
+The ```transformers``` package for example will automatically look for the newest version available.
+Whereas ```tensorflow==1.15.2``` will install this exact version, and the therein documented dependencies.
+Future note: Packages like [Poetry](https://github.com/python-poetry/poetry) can handle these dependencies
+pretty well, as the requirements are growing.
+
+Theres a difference between a local environment and production usage. On a server you most likely don't want to use
+an environment, since the server does not need to handly many projects. Thus one can skip the environment and directly
+install packages on the system.
+
+For local development it's highly recommanded to use a local environment. When handling different software projects
+every environment can define it's own dependencies. For setting those up see [Setups](#Setups)
+
+## Setups
+
+It's pretty useful to use some simple bash commands and wrap these in a .sh file to have a setup pipeline and get
+started. ```Immobert``` provides two scripts to set it up, either locally or in production. The main server we'r
+using for this is ```iffy```.
+
+    # Set the virtual environment (please call venv as module with -m)
+    python3 -m venv devenv
+
+    # Enter the environment
+    source ./devenv/bin/activate
+
+    # Install a pip version and upgrade it (again -m is important)
+    python3 -m pip install --upgrade pip
+
+    # Install all packages mentioned in requirements.txt
+    # This call should be used with freezed requirements (==X.Y.Z)
+    pip3 install -r requirements.txt
+
+    # Upgrade what's possible
+    # Execute with --upgrade if you want to have the newest libraries
+    # Not recommended if for example tensorflow would upgrade to 2.Y.Z from 1.Y.Z
+    # pip3 install -r requirements.txt --upgrade
+
+Enter an environment manually with ```source <env-name>/bin/activate``` and leave it with ```deactivate```.
+Once the environment is activated you have access to all packages and therein existing functions. So you can use
+them when you open up a python terminal with ```python3``` in your bash.
+
+
+## Configuration objects
+
+```ALBERT``` has a large architecture configuration and also defines a lot of other parameters.
+Parameters that suggest how to perform the pretraining. Like ```sequence_length```, ```masked_lm_prob```,
+```dupe_factor``` or even newer parameter that didn't exist in original [BERT](https://github.com/google-research/bert)
+like ```ngram```, ```random_next_sentence```, or ```poly_power```. ```albert_config``` is common model architecture
+json config.
+
+    "albert_config": {
+        "attention_probs_dropout_prob": 0.1,
+        "hidden_act": "gelu",
+        "hidden_dropout_prob": 0.1,
+        "embedding_size": 128,
+        "hidden_size": 1024,
+        "initializer_range": 0.02,
+        "intermediate_size": 4096,
+        "max_position_embeddings": 512,
+        "num_attention_heads": 16,
+        "num_hidden_layers": 24,
+        "num_hidden_groups": 1,
+        "net_structure_type": 0,
+        "gap_size": 0,
+        "num_memory_blocks": 0,
+        "inner_group_num": 1,
+        "down_scale_factor": 1,
+        "type_vocab_size": 2,
+        "vocab_size": 30000
+    }
+Additional parameters can be the following:
+
+|Parameter                  |Default    |
+|---                        |---        |
+|do_lower_case              | true      |
+|max_predictions_per_seq    | 20        |
+|random_seed                | 12345     |
+|dupe_factor                | 2         |
+|masked_lm_prob             | 0.15      |
+|short_seq_prob             | 0.2       |
+|do_permutation             | false     |
+|random_next_sentence       | false     |
+|do_whole_word_mask         | true      |
+|favor_shorter_ngram        | true      |
+|ngram                      | 3         |
+|optimizer                  | lamb      |
+|poly_power                 | 1.0       |
+|learning_rate              | 0.00176   |
+|max_seq_length             | 512       |
+|num_train_steps            | 125000    |
+|num_warmup_steps           | 3125      |
+|save_checkpoints_steps     | 5000      |
+|keep_checkpoint_max        | 5         |
+
+There are even more but these (i think) are the most important for ALBERT. I suggest to also keep theses in a json or
+yaml file. If those are kept in a json one can easily read them and build pipelines around the commands provided in the
+ALBERT repository.
+
+# Tokenizers raws model tasks and records
+
+## Tokenizers
+
+```ALBERT``` supports [```SentencePiece```-Tokenizer](https://github.com/google/sentencepiece/blob/master/python/README.md)
+natively. It's fully integrated in the preprocessing pipeline. But to use it, one has to learn a tokenizer, on the
+provided data. Google Standard Tokenizers mostly do not support  german and even if they do it's a mulitlingual version
+where each Language just is provided with around 1000 individual tokens.
+
+For most NLP applications and corpora a ```vocab_size``` inbetween ```20000``` to ```40000``` should be fine.
+The tokenizer itself is trained via:
+
+```python
+import os
+import logging
+import sentencepiece
+
+text_filepath = "path/to/corpus.txt"
+model_filepath = "path/to/model/"
+vocab_size = 25000
+control_symbols = ["[CLS]", "[SEP]", "[MASK]"]
+
+if not os.path.isfile(text_filepath):
+    raise BaseException(f"Could not train sp tokenizer, due to missing text file at {text_filepath}")
+
+train_command = f"--input={text_filepath} " \
+                f"--model_prefix={model_filepath} " \
+                f"--vocab_size={vocab_size - len(control_symbols)} " \
+                f"--pad_id=0 --unk_id=1 --eos_id=-1 --bos_id=-1 " \
+                f"--user_defined_symbols=(,),”,-,.,–,£,€ " \
+                f"--control_symbols={control_symbols} " \
+                f"--shuffle_input_sentence=true --input_sentence_size=10000000 " \
+                f"--character_coverage=0.99995 --model_type=unigram "
+
+logging.info(f"Learning SentencePiece tokenizer with following train command: {train_command}")
+sentencepiece.SentencePieceTrainer.Train(train_command)
+assert (os.path.isfile(f"{model_filepath}.model"))
+```
+
+It'll write two files to ```--model_prefix```: ```tokenizer.model``` and the ```tokenizer.vocab```. The vocabulary
+has all subtokens and the model is a binary file, to load the model from.
+
+But to train the tokenizer we need a file to pass to ```text_filepath```. This can be done with
+
+## Raws
+
+The only thing we need to train a tokenizer is a file that contains all our data. Since the
+[```SentencePiece```-Tokenizer](https://github.com/google/sentencepiece/blob/master/python/README.md) is trained on
+sentences to detect subtokens in a text, we need to find all sentences that are provided in our data. At this point
+we can already think about the way in which we should provide data to tensorflow and the preprocessing pipeline of
+```ALBERT```.
+
+In fact there only a very light difference between what the
+[```sentencepiece.SentencePieceTrainer.Train```](https://github.com/google/sentencepiece/blob/master/python/sentencepiece.py)
+and [```create_pretrain_data.py```](https://github.com/google-research/ALBERT/blob/master/create_pretraining_data.py)
+by ```ALBERT``` original google-research repository. ALBERTs preprocessing pipeline expects the data to be one sentence
+per line, just like sentencepiece, but the documents must be seperated by an additional line break (```\n```).
+
+Since ```SentencePiece``` is fine with no tokens in a line we can format the data such that we only need one file,
+instead of two seperate sentences from eachother by ```\n``` and documents with ```\n\n```.
+
+But we still don't know what a sentence is. Classic NLP problem, we need to find what defines a sentence. This question
+seem far to complex to tackle at this point, since we just want to format data for the first step on the way to train an
+ALBERT model.
+
+Before diving deep into designing regexes for every many many special cases and exceptions in your data: My
+recommendation is to pick up ```NLTK``` as another dependency in your project and add download the tokenizer pickle
+from their repository, usoing the ```ǹltk.download()``` function in your terminal. There are a few languages and it's
+easy to handle.
+
+Once your models perform reasonabily with not as many training steps (like ```100000``` to ```150000```) you can tackle
+the problem and find your sentences with more accurate ways, that fit your needs.
+
+Now we have our raw.txt file which most likely will be a large file around 1 to 2GB or even larger
+
+## Model tasks
+
+Before we can enter the way in which we address the creation of our preprocessed data, we need to have a look at
+what the pretraining tasks are for the model. So let's have a short look at what ALBERT is actually trying to learn,
+when we pretrain it.
+
+### Masked LM Prediction
+
+First of all no matter what task we are on there is a new interesting set of parameters in BERT/ALBERT. Since these
+models operate on sentences (or ```sequences```), we need to set a maximum size, a sequence can have. This parameter
+is limited to ```512``` and is usually either ```64```, ```128``` or ```265``` if not. This parameter later on
+influences the ```batch_size```, which determines how large a single batch is that is computed in out turn.
+
+Parameters like ```short_seq_prob``` are interesting indipendent from what task is
+performed. The ```short_seq_prob```-Parameter describes at which probability a sequence is shortend down to the length
+that is described in ```target_seq_length```.
+
+But now let get to the first task: __Masked LM Prediction__ is a task that takes ```sentence``` as input. Additionally
+some other parameters like ```do_lower_case``` (used in the tokenization), ```max_predictions_per_seq```,
+```do_whole_word_mask``` and ```masked_lm_prob``` are passed, to fine configure this task. This task also exists in the
+original BERT model and aims to MASK tokens within a sentence. The model then tries to predict the words from the
+known (passed words).
+
+Here is an example that comes from the original [BERT repository](https://github.com/google-research/BERT):
+
+```
+Input: the man went to the [MASK1] . he bought a [MASK2] of milk.
+Labels: [MASK1] = store; [MASK2] = gallon
+```
+
+In reality there is no token named ```[MASK1]``` or ```[MASK2]```. These will be masked with the same token called
+```[MASK]```. In binary elements per token this would look like ```[0,0,0,0,0,1,0,0,0,0,1,0,0,0]```. All tokens at
+positions maked with ```1``` should be predicted, whereas tokens marked with ```0``` are passed as ids to the model.
+
+Additionally the parameter ```masked_lm_prob``` tells how many of a sequences available tokens are masked. This is done
+before padding the sequence up to 512, or what ever is set as ```max_seq_length```. So ```masked_lm_prob``` is applied
+to the length of the raw sequence, not the padded length.
+
+Another interessting parameter is ```do_whole_word_mask```. This tells the pretraining data process to only mask full
+words, instead of subwords. Tokenizers like ```sentencepiece``` are using special characters to separate subtokens from
+each other and also mark a subtoken needs some other token combined to be understood as a full token/word. In
+```sentencepiece``` this special character is ```▁``` (looks like a normal underscore but it is not). This character
+marks a subword, so when ```do_whole_word_mask``` is used this token is used to find out if the token before or after
+should be masked too. Like this it's possible to mask full words instead of subwords.
+
+
+### Sentence Order Prediction
+
+This is a new task in ALBERT and didn't exist in BERT original.
+[CLS],[SEP],[SEP]
+
+## Records
+
+Now that we fully understand what the model should do, we can create ```instances```, that will be written to a special
+format used in ```tensoflow``` to pass data, called ```tfrecords```. In such a record each document is split into
+
+    INFO:tensorflow:tokens: [CLS] ▁ a man went to [MASK] [SEP] he bought a [MASK] of milk [SEP]
+    INFO:tensorflow:input_ids: 2 13 48 1082 2090 18275 7893 4 3 37 3252 3235 48 4 44 1131 3 0 0 0 0 ...
+    INFO:tensorflow:input_mask: 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 0 0 0 0 ...
+    INFO:tensorflow:segment_ids: 0 0 0 0 0 0 0 1 1 1 1 1 1 1 0 0 0 0 0 0 0 0 0 0 ...
+    INFO:tensorflow:token_boundary: 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 ...
+    INFO:tensorflow:masked_lm_positions: 7 12 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 ...
+    INFO:tensorflow:masked_lm_ids: 65 2636 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+    INFO:tensorflow:masked_lm_weights: 1.0 1.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0
+    INFO:tensorflow:next_sentence_labels: 1
+
+
+# Main entry run pretraining
+
+
+
+
+
