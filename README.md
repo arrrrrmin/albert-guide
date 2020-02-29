@@ -10,7 +10,14 @@ A guide to pretrain a new own albert model from scretch
 # Stages
 
 * [__Environments__, __setups__ and __configurations__](#environments-setups-and-configurations)
-* [__Tokenizers__, __Raws__ model tasks and __records__](#tokenizers-raws-model-tasks-and-records)
+    * [Environments](#environments)
+    * [Setups](#setups)
+    * [Configuration objects](#configuration-objects)
+* [__Tokenizers__, __Raws__, __model tasks__ and __records__](#tokenizers-raws-model-tasks-and-records)
+    * [Tokenizers](#tokenizers)
+    * [Raws](#raws)
+    * [Model tasks](#model-tasks)
+    * [Records](#records)
 * [Main entry __run_pretraining__](#main-entry-run-pretraining)
 
 
