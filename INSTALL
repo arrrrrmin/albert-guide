@@ -1,0 +1,7 @@
+# Setup via pip
+python3 -m venv env --prompt albert-guide
+source env/bin/activate install
+python3 setup.py install
+
+# Setup other package
+git clone https://github.com/attardi/wikiextractor
