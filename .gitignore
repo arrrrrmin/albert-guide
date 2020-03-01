@@ -133,3 +133,7 @@ dmypy.json
 
 # Third parties
 wikiextractor/
+
+# Dirs
+wikidata/extracted/
+itwiki-latest-pages-articles.xml.bz2
