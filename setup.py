@@ -17,8 +17,9 @@ if __name__ == "__main__":
         packages=find_packages(),
 
         install_requires=[
-            'tensorflow-gpu'
+            'tensorflow-gpu',
+            'sentencepiece'
         ],
-        python_requires=', ==1.15.2'
+        python_requires='==1.15.2,'
 
     )

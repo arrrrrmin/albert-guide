@@ -136,4 +136,4 @@ wikiextractor/
 
 # Dirs
 wikidata/extracted/
-itwiki-latest-pages-articles.xml.bz2
+*wiki-latest-pages-articles.xml.bz2
