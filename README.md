@@ -160,7 +160,7 @@ train_command = f"--input={text_filepath} " \
                 f"--vocab_size={vocab_size - len(control_symbols)} " \
                 f"--pad_id=0 --unk_id=1 --eos_id=-1 --bos_id=-1 " \
                 f"--user_defined_symbols=(,),”,-,.,–,£,€ " \
-                f"--control_symbols={control_symbols} " \
+                f"--control_symbols={','.join(control_symbols)} " \
                 f"--shuffle_input_sentence=true --input_sentence_size=10000000 " \
                 f"--character_coverage=0.99995 --model_type=unigram "
 
