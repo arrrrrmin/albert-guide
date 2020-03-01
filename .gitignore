@@ -137,3 +137,7 @@ wikiextractor/
 # Dirs
 wikidata/extracted/
 *wiki-latest-pages-articles.xml.bz2
+
+# Models
+*.model
+*.vocab

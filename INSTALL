@@ -5,3 +5,6 @@ python3 setup.py install
 
 # Setup other package
 git clone https://github.com/attardi/wikiextractor
+
+# Setup nltk data
+bash nltk_setup.sh
