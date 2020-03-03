@@ -1,10 +1,13 @@
 # Setup via pip
 python3 -m venv env --prompt albert-guide
+
 source env/bin/activate install
+
+pip3 install --upgrade pip
 pip3 install -r requirements.txt
 
 # Setup other package
 git clone https://github.com/attardi/wikiextractor
 
 # Setup nltk data
-bash nltk_setup.sh
+python3 setup_nltk.py

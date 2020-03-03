@@ -139,5 +139,7 @@ wikidata/extracted/
 *wiki-latest-pages-articles.xml.bz2
 
 # Models
+pretrained/
 *.model
 *.vocab
+

@@ -19,7 +19,6 @@ def remove_chars(document: str, remove_section: bool = False) -> str:
   # Some characters aren't very relevant. We want to get rid of those, since
   # they just add more overhead in our vocabulary later on. Also remove sections,
   # in case they are also queried in we_need_data.sh
-
   document = unwanted_pattern.sub(repl="", string=document)
   if remove_section:
     document = section_pattern.sub(repl="", string=document)
@@ -30,8 +29,6 @@ def build_file_from_dir(datadir: str) -> None:
   # Sentencepiece requires one file to compute the BPE from. We had to do this
   # anyways, since the download format is json Aggregated file will be written
   # next to the partial data
-
-  texts = []
   with open(f"{datadir}/sentences.txt", "a") as txtfile:
     for filepath in glob.glob(f"{datadir}*/*"):
       if os.path.isdir(filepath):
@@ -51,7 +48,6 @@ def train_new_tokenizer(
   # Actually learning the model and write it + vocab.txt to output_model_path
   # Suffixes are usually defaulted by the SentencePieceTrainer to <>.model and
   # <>.vocab
-
   if not os.path.isfile(input_file_path):
     raise BaseException(f"Could not train sp tokenizer. Text file is missing. You passed: *** {input_file_path} ***")
 
