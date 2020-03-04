@@ -140,6 +140,7 @@ wikidata/extracted/
 
 # Models
 pretrained/
+selftrained/
 *.model
 *.vocab
 

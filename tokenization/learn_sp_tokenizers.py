@@ -7,8 +7,8 @@ import glob
 import json
 import argparse
 import sentencepiece
-
 from nltk.tokenize import sent_tokenize
+
 
 unwanted_pattern = re.compile(r"""([\t\n\\«])""")
 section_pattern = re.compile(r"""(Section[:]*[A-Za-zAÄÖÜäü ]*)""")
@@ -29,7 +29,7 @@ def build_file_from_dir(datadir: str) -> None:
     # anyways, since the download format is json Aggregated file will be written
     # next to the partial data
     with open(f"{datadir}/sentences.txt", "a") as txtfile:
-        for filepath in glob.glob(f"{datadir}*/*"):
+        for filepath in glob.glob(f"{datadir}*/*/*"):
             if os.path.isdir(filepath):
                 continue
             print(f"Reading *** {filepath} ***")
@@ -54,7 +54,7 @@ def train_new_tokenizer(
     control_symbols = ["[CLS]", "[SEP]", "[MASK]"] if control_symbols is None else control_symbols
 
     train_command = f"--input={input_file_path} " \
-                    f"--model_prefix={output_model_path}tokenizer " \
+                    f"--model_prefix={output_model_path}spiece " \
                     f"--vocab_size={vocab_size - len(control_symbols)} " \
                     f"--pad_id=0 --unk_id=1 --eos_id=-1 --bos_id=-1 " \
                     f"--user_defined_symbols=(,),”,-,.,–,£,€ " \
@@ -69,7 +69,7 @@ def train_new_tokenizer(
 if __name__ == "__main__":
     arg_parser = argparse.ArgumentParser()
     arg_parser.add_argument("--datadir", type=str, required=True)
-    arg_parser.add_argument("--controlsymbols", nargs="*", type=str, default="[CLS] [SEP] [MASK]")
+    arg_parser.add_argument("--controlsymbols", nargs="*", type=str) # default="[CLS] [SEP] [MASK]"
     args = arg_parser.parse_args()
 
     # Skip sentences.txt when already exists.
