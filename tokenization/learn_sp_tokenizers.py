@@ -79,7 +79,7 @@ if __name__ == "__main__":
 
     # Finally learn the actual tokenizer model
     train_new_tokenizer(
-        input_file_path="../wikidata/extracted/sentences.txt",
+        input_file_path="../wikidata/sentences.txt",
         output_model_path="../wikidata/",
         vocab_size=25000,
         control_symbols=args.controlsymbols
