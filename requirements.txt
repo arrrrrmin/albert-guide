@@ -1,7 +1,9 @@
 # tensorflow==1.15.2
 # tensorflow-gpu==1.15.2
+# transformers requires tf >= 2.0
 tensorflow
 sentencepiece
 nltk
 transformers
 torch
+pandas
