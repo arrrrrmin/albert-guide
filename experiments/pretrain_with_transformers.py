@@ -174,6 +174,33 @@ def train(args, model_name, train_dataset, device, model: PreTrainedModel, token
         optimizer.load_state_dict(torch.load(os.path.join(model_name, "optimizer.pt")))
         scheduler.load_state_dict(torch.load(os.path.join(model_name, "scheduler.pt")))
 
+    # Check if saved optimizer or scheduler states exist
+    if (
+        model_name
+        and os.path.isfile(os.path.join(args.model_name_or_path, "optimizer.pt"))
+        and os.path.isfile(os.path.join(args.model_name_or_path, "scheduler.pt"))
+    ):
+        # Load in optimizer and scheduler states
+        optimizer.load_state_dict(torch.load(os.path.join(args.model_name_or_path, "optimizer.pt")))
+        scheduler.load_state_dict(torch.load(os.path.join(args.model_name_or_path, "scheduler.pt")))
+
+    if args.fp16:
+        try:
+            from apex import amp
+        except ImportError:
+            raise ImportError("Please install apex from https://www.github.com/nvidia/apex to use fp16 training.")
+        model, optimizer = amp.initialize(model, optimizer, opt_level=args.fp16_opt_level)
+
+    # multi-gpu training (should be after apex fp16 initialization)
+    if args.n_gpu > 1:
+        model = torch.nn.DataParallel(model)
+
+    # Distributed training (should be after apex fp16 initialization)
+    if args.local_rank != -1:
+        model = torch.nn.parallel.DistributedDataParallel(
+            model, device_ids=[args.local_rank], output_device=args.local_rank, find_unused_parameters=True
+        )
+
     # Train!
     logger.info("***** Running training *****")
     logger.info("  Num examples = %d", len(train_dataset))
@@ -293,12 +320,69 @@ def train(args, model_name, train_dataset, device, model: PreTrainedModel, token
     return global_step, tr_loss / global_step
 
 
-## TODO: forgot about evaluate
+def evaluate(args, model: PreTrainedModel, tokenizer: PreTrainedTokenizer, prefix="") -> Dict:
+    # Loop to handle MNLI double evaluation (matched, mis-matched)
+    eval_output_dir = args.output_dir
+
+    eval_dataset = load_and_cache_examples(args, tokenizer, evaluate=True)
+
+    if args.local_rank in [-1, 0]:
+        os.makedirs(eval_output_dir, exist_ok=True)
+
+    args.eval_batch_size = args.per_gpu_eval_batch_size * max(1, args.n_gpu)
+    # Note that DistributedSampler samples randomly
+
+    def collate(examples: List[torch.Tensor]):
+        if tokenizer._pad_token is None:
+            return pad_sequence(examples, batch_first=True)
+        return pad_sequence(examples, batch_first=True, padding_value=tokenizer.pad_token_id)
+
+    eval_sampler = SequentialSampler(eval_dataset)
+    eval_dataloader = DataLoader(
+        eval_dataset, sampler=eval_sampler, batch_size=args.eval_batch_size, collate_fn=collate
+    )
+
+    # multi-gpu evaluate
+    if args.n_gpu > 1:
+        model = torch.nn.DataParallel(model)
+
+    # Eval!
+    logger.info("***** Running evaluation {} *****".format(prefix))
+    logger.info("  Num examples = %d", len(eval_dataset))
+    logger.info("  Batch size = %d", args.eval_batch_size)
+    eval_loss = 0.0
+    nb_eval_steps = 0
+    model.eval()
+
+    for batch in tqdm(eval_dataloader, desc="Evaluating"):
+        inputs, labels = mask_tokens(batch, tokenizer, args) if args.mlm else (batch, batch)
+        inputs = inputs.to(args.device)
+        labels = labels.to(args.device)
+
+        with torch.no_grad():
+            outputs = model(inputs, masked_lm_labels=labels) if args.mlm else model(inputs, labels=labels)
+            lm_loss = outputs[0]
+            eval_loss += lm_loss.mean().item()
+        nb_eval_steps += 1
+
+    eval_loss = eval_loss / nb_eval_steps
+    perplexity = torch.exp(torch.tensor(eval_loss))
+
+    result = {"perplexity": perplexity}
+
+    output_eval_file = os.path.join(eval_output_dir, prefix, "eval_results.txt")
+    with open(output_eval_file, "w") as writer:
+        logger.info("***** Eval results {} *****".format(prefix))
+        for key in sorted(result.keys()):
+            logger.info("  %s = %s", key, str(result[key]))
+            writer.write("%s = %s\n" % (key, str(result[key])))
+
+    return result
 
 
 def main(
         model_type: str, config_path: str, tokenizer_path: str, model_path: str, train_data_file: str,
-        output_dir: str, local_rank: int=-1
+        output_dir: str, local_rank: int=-1, do_eval: bool=False
 ):
     config_class, model_class, tokenizer_class = MODEL_CLASSES[model_type]
     if config_path:
@@ -309,96 +393,45 @@ def main(
         config = config_class()
     tokenizer = tokenizer_class.from_pretrained(tokenizer_path)
     block_size = tokenizer.max_len
-    if model_path:
-        logger.info(f"Loading model from model_path: {model_path}")
-        model = model_class.from_pretrained(
-            model_path,
-            from_tf=bool(".ckpt" in model_path),
-            config=config
-        )
-    else:
-        logger.info("Training new model from scratch")
-        model = model_class(config=config)
+
+    # Always inits a new model
+    logger.info("Training new model from scratch")
+    model = model_class(config=config)
+
     device = get_device(local_rank=local_rank)
     logger.info(f"Device found by torch: {device}")
     model.to(device)
-    do_train = True if model_path is None else False
-    # Training
-    if do_train:
-        train_dataset = load_and_cache_examples(
-            tokenizer, block_size, evaluate=False, train_data_file=train_data_file, eval_data_file=None
-        )
-        trainargs = TrainingArgs(
-            local_rank=-1,
-            train_batch_size=16,
-            per_gpu_train_batch_size=4,
-            n_gpu=1,
-            max_steps=-1,
-            num_train_epochs=1.0,
-            gradient_accumulation_steps=1,
-            learning_rate=5e5,
-            adam_epsilon=1e-8,
-            seed=42,
-            fp16_opt_level="01",
-            max_grad_norm=1.0,
-            logging_steps=50,
-            save_steps=100,
-            mlm=True,
-            mlm_probability=0.15,
-            evaluate_during_training=True
-        )
-        global_step, tr_loss = train(trainargs, model_path, train_dataset, device, model, tokenizer)
-        logger.info(" global_step = %s, average loss = %s", global_step, tr_loss)
 
-    # Saving best-practices: if you use save_pretrained for the model and tokenizer,
-    # you can reload them using from_pretrained()
-    if do_train and (args.local_rank == -1 or torch.distributed.get_rank() == 0):
-        # Create output directory if needed
-        if args.local_rank in [-1, 0]:
-            os.makedirs(output_dir, exist_ok=True)
+    train_dataset = load_and_cache_examples(
+        tokenizer, block_size, evaluate=False, train_data_file=train_data_file, eval_data_file=None
+    )
+    trainargs = TrainingArgs(
+        local_rank=-1,
+        train_batch_size=16,
+        per_gpu_train_batch_size=4,
+        n_gpu=1,
+        max_steps=-1,
+        num_train_epochs=1.0,
+        gradient_accumulation_steps=1,
+        learning_rate=5e5,
+        adam_epsilon=1e-8,
+        seed=42,
+        fp16_opt_level="01",
+        max_grad_norm=1.0,
+        logging_steps=50,
+        save_steps=100,
+        mlm=True,
+        mlm_probability=0.15,
+        evaluate_during_training=True
+    )
+    global_step, tr_loss = train(trainargs, None, train_dataset, device, model, tokenizer)
 
-        logger.info("Saving model checkpoint to %s", output_dir)
-        # Save a trained model, configuration and tokenizer using `save_pretrained()`.
-        # They can then be reloaded using `from_pretrained()`
-        model_to_save = (
-            model.module if hasattr(model, "module") else model
-        )  # Take care of distributed/parallel training
-        model_to_save.save_pretrained(args.output_dir)
-        tokenizer.save_pretrained(args.output_dir)
-
-        # Good practice: save your training arguments together with the trained model
-        torch.save(args, os.path.join(args.output_dir, "training_args.bin"))
-
-        # Load a trained model and vocabulary that you have fine-tuned
-        model = model_class.from_pretrained(args.output_dir)
-        tokenizer = tokenizer_class.from_pretrained(args.output_dir)
-        model.to(device)
-
-    # Evaluation
-    results = {}
-    if args.do_eval and args.local_rank in [-1, 0]:
-        checkpoints = [args.output_dir]
-        if args.eval_all_checkpoints:
-            checkpoints = list(
-                os.path.dirname(c) for c in sorted(glob.glob(args.output_dir + "/**/" + WEIGHTS_NAME, recursive=True))
-            )
-            logging.getLogger("transformers.modeling_utils").setLevel(logging.WARN)  # Reduce logging
-        logger.info("Evaluate the following checkpoints: %s", checkpoints)
-        for checkpoint in checkpoints:
-            global_step = checkpoint.split("-")[-1] if len(checkpoints) > 1 else ""
-            prefix = checkpoint.split("/")[-1] if checkpoint.find("checkpoint") != -1 else ""
-
-            model = model_class.from_pretrained(checkpoint)
-            model.to(args.device)
-            result = evaluate(args, model, tokenizer, prefix=prefix)
-            result = dict((k + "_{}".format(global_step), v) for k, v in result.items())
-            results.update(result)
-
-    return results
+    logger.info(" global_step = %s, average loss = %s", global_step, tr_loss)
 
 
 if __name__ == "__main__":
     main(
-        model_type="albert", config_path="../selftrained/config.json", tokenizer_path="../wikidata/",
-        model_path=None, train_data_file="../wikidata/extracted/AA/wiki_00", output_dir="../selftrained"
+        model_type="albert", config_path="../our_training/", tokenizer_path="../wikidata/",
+        model_path="../our_training/", train_data_file="../wikidata/data/AA/wiki_00",
+        output_dir="../selftrained"
     )
