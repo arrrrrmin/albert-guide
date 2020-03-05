@@ -16,15 +16,16 @@ from nltk.tokenize import sent_tokenize
 def do_setup(model_type: str = 'albert-base-v2', pretrained_path: str = '../pretrained'):
     if not os.path.exists(pretrained_path):
         os.mkdir(pretrained_path)
-        # Load tokenizer and model from pretrained model/voculary
-        tokenizer = AlbertTokenizer.from_pretrained(model_type)
-        model = TFAlbertForSequenceClassification.from_pretrained(model_type)
-        # Save tokenizer and model to pretrained path
-        tokenizer.save_pretrained(save_directory=pretrained_path)
-        model.save_pretrained(save_directory=pretrained_path)
+
+    # Load tokenizer and model from pretrained model/voculary
+    tokenizer = AlbertTokenizer.from_pretrained(model_type)
+    model = TFAlbertForSequenceClassification.from_pretrained(model_type)
+    # Save tokenizer and model to pretrained path
+    tokenizer.save_pretrained(save_directory=pretrained_path)
+    model.save_pretrained(save_directory=pretrained_path)
 
 
-def load_wiki_data(data_path: str = '../wikidata/extracted/AA/wiki_01', split_sections: bool = False):
+def load_wiki_data(data_path: str = '../wikidata/data/AA/wiki_01', split_sections: bool = False):
     # Assert we have data availbale at data_path
     assert Path(data_path).glob('*/*'), "There are no files available at data_path"
 
@@ -112,8 +113,9 @@ if __name__ == "__main__":
     sentences = concatenate_section_sents(sentences)
 
     pretrained_path = '../pretrained'
-    assert all([Path(pretrained_path).glob('**/spiece.model'), Path(pretrained_path).glob('**/tf_model.h5')])
-
+    if not all([sorted(Path(pretrained_path).glob('spiece.model')),
+                sorted(Path(pretrained_path).glob('tf_model.h5'))]):
+        do_setup(model_type='albert-base-v2', pretrained_path='../pretrained')
     # Load tokenizer and model from pretrained path
     tokenizer = AlbertTokenizer.from_pretrained(pretrained_path)
     model = TFAlbertForSequenceClassification.from_pretrained(pretrained_path)
@@ -127,15 +129,12 @@ if __name__ == "__main__":
         print("Section break detected in A", "Section::::" in seq_A, seq_A)
         print("Section break detected in B", "Section::::" in seq_B, seq_B)
         was_section.append("Section::::" in seq_B)
-        # seq_A = sent_tokenize(seq_A)[-1] if "Section::::" in seq_A else seq_A
-        # seq_B = sent_tokenize(seq_B)[-1] if "Section::::" in seq_B else seq_B
+
         seq_pattern = re.compile(r"(Section[:]*\w*.)")
         seq_A = re.sub(seq_pattern, '', seq_A).strip()
         seq_B = re.sub(seq_pattern, '', seq_B).strip()
         print("Sequence passed to model: ", seq_A)
         print("Sequence passed to model: ", seq_B)
-        # seq_A = seq_A.replace("Section::::", "")
-        # seq_B = seq_B.replace("Section::::", "")
 
         print(i, len(seq_A), len(seq_B))
         probs = perform_sentence_order(model, tokenizer, seq_A=seq_A, seq_B=seq_B)
@@ -144,7 +143,9 @@ if __name__ == "__main__":
 
     results = pd.DataFrame(all_probs)
     results["was_section"] = was_section
-    print(results)
+    with pd.option_context('display.max_rows', None, 'display.max_columns', None):
+        print(results)
+    results.plot()
     all_probs = np.array(all_probs)
     # print(np.argmax(all_probs[1:, 0])+1)
 
