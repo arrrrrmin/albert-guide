@@ -13,11 +13,11 @@ data="data/"
 
 if [ -f $wikidata_dump ]; then
   cd ../wikiextractor
-  python3 WikiExtractor.py  -b 55000K --section --min_text_length 300 --no_templates --json \
+  python3 WikiExtractor.py  -q -b 55000K --section --min_text_length 300 --no_templates --json \
                             -o "../wikidata/${data}" "../wikidata/${wikidata_dump}"
 else
   wget "http://download.wikimedia.org/${langcode}wiki/latest/${wikidata_dump}"
   cd ../wikiextractor
-  python3 WikiExtractor.py  -b 55000K --section --min_text_length 300 --no_templates --json \
+  python3 WikiExtractor.py  -q -b 55000K --section --min_text_length 300 --no_templates --json \
                             -o "../wikidata/${data}" "../wikidata/${wikidata_dump}"
 fi
