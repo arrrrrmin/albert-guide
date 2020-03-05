@@ -132,7 +132,7 @@ dmypy.json
 .idea/
 
 # Third parties
-wikiextractor/
+/wikiextractor/
 
 # Dirs
 wikidata/extracted/
@@ -143,4 +143,3 @@ pretrained/
 selftrained/
 *.model
 *.vocab
-

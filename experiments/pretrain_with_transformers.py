@@ -9,18 +9,12 @@
 # some lines for multi gpu usage.
 
 
-import os
-import torch
 from transformers import *
 
-import argparse
 import glob
 import logging
 import os
-import pickle
 import random
-import re
-import shutil
 from typing import Dict, List, Tuple, NamedTuple
 
 import numpy as np
@@ -35,6 +29,26 @@ from torch.utils.tensorboard import SummaryWriter
 MODEL_CLASSES = {
     "albert": (AlbertConfig, AlbertForMaskedLM, AlbertTokenizer),
 }
+
+
+class TrainingArgs(NamedTuple):
+    local_rank: int
+    train_batch_size: int
+    per_gpu_train_batch_size: int
+    n_gpu: int
+    max_steps: int
+    num_train_epochs: float
+    gradient_accumulation_steps: int
+    learning_rate: float
+    adam_epsilon: float
+    seed: int
+    fp16_opt_level: str
+    max_grad_norm: float
+    logging_steps: int
+    save_steps: int
+    mlm: bool
+    mlm_probability: float
+    evaluate_during_training: bool
 
 
 class LineByLineTextDataset(Dataset):
@@ -279,24 +293,7 @@ def train(args, model_name, train_dataset, device, model: PreTrainedModel, token
     return global_step, tr_loss / global_step
 
 
-class TrainingArgs(NamedTuple):
-    local_rank: int
-    train_batch_size: int
-    per_gpu_train_batch_size: int
-    n_gpu: int
-    max_steps: int
-    num_train_epochs: float
-    gradient_accumulation_steps: int
-    learning_rate: float
-    adam_epsilon: float
-    seed: int
-    fp16_opt_level: str
-    max_grad_norm: float
-    logging_steps: int
-    save_steps: int
-    mlm: bool
-    mlm_probability: float
-    evaluate_during_training: bool
+## TODO: forgot about evaluate
 
 
 def main(
