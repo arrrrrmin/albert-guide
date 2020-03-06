@@ -111,7 +111,6 @@ if __name__ == "__main__":
 
     sentences = sent_tokenize(text=seq_A)
     sentences = concatenate_section_sents(sentences)
-    sentences = build_blocks(sentences)
 
     pretrained_path = '../pretrained'
     if not all([sorted(Path(pretrained_path).glob('spiece.model')),
