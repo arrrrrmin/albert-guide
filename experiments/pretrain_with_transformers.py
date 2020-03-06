@@ -13,8 +13,10 @@ from transformers import *
 
 import glob
 import logging
+import re
 import os
 import random
+import shutil
 from typing import Dict, List, Tuple, NamedTuple
 
 import numpy as np
@@ -35,6 +37,7 @@ class TrainingArgs(NamedTuple):
     local_rank: int
     train_batch_size: int
     per_gpu_train_batch_size: int
+    per_gpu_eval_batch_size: int
     n_gpu: int
     max_steps: int
     num_train_epochs: float
@@ -42,6 +45,7 @@ class TrainingArgs(NamedTuple):
     learning_rate: float
     adam_epsilon: float
     seed: int
+    fp16: bool
     fp16_opt_level: str
     max_grad_norm: float
     logging_steps: int
@@ -92,17 +96,53 @@ def set_seed(args):
     torch.manual_seed(args.seed)
 
 
+def _sorted_checkpoints(args, checkpoint_prefix="checkpoint", use_mtime=False) -> List[str]:
+    ordering_and_checkpoint_path = []
+
+    glob_checkpoints = glob.glob(os.path.join(args.output_dir, "{}-*".format(checkpoint_prefix)))
+
+    for path in glob_checkpoints:
+        if use_mtime:
+            ordering_and_checkpoint_path.append((os.path.getmtime(path), path))
+        else:
+            regex_match = re.match(".*{}-([0-9]+)".format(checkpoint_prefix), path)
+            if regex_match and regex_match.groups():
+                ordering_and_checkpoint_path.append((int(regex_match.groups()[0]), path))
+
+    checkpoints_sorted = sorted(ordering_and_checkpoint_path)
+    checkpoints_sorted = [checkpoint[1] for checkpoint in checkpoints_sorted]
+    return checkpoints_sorted
+
+
+def _rotate_checkpoints(args, checkpoint_prefix="checkpoint", use_mtime=False) -> None:
+    if not args.save_total_limit:
+        return
+    if args.save_total_limit <= 0:
+        return
+
+    # Check if we should delete older checkpoint(s)
+    checkpoints_sorted = _sorted_checkpoints(args, checkpoint_prefix, use_mtime)
+    if len(checkpoints_sorted) <= args.save_total_limit:
+        return
+
+    number_of_checkpoints_to_delete = max(0, len(checkpoints_sorted) - args.save_total_limit)
+    checkpoints_to_be_deleted = checkpoints_sorted[:number_of_checkpoints_to_delete]
+    for checkpoint in checkpoints_to_be_deleted:
+        logger.info("Deleting older checkpoint [{}] due to args.save_total_limit".format(checkpoint))
+        shutil.rmtree(checkpoint)
+
+
 def mask_tokens(inputs: torch.Tensor, tokenizer: PreTrainedTokenizer, args) -> Tuple[torch.Tensor, torch.Tensor]:
     """ Prepare masked tokens inputs/labels for masked language modeling: 80% MASK, 10% random, 10% original. """
 
     if tokenizer.mask_token is None:
         raise ValueError(
             "This tokenizer does not have a mask token which is necessary for masked language modeling. "
-            "Remove the --mlm flag if you want to use this tokenizer."
         )
 
     labels = inputs.clone()
-    # We sample a few tokens in each sequence for masked-LM training (with probability args.mlm_probability defaults to 0.15 in Bert/RoBERTa)
+    # We sample a few tokens in each sequence for masked-LM training
+    # (with probability args.mlm_probability defaults to 0.15 in Bert/RoBERTa/Albert)
     probability_matrix = torch.full(labels.shape, args.mlm_probability)
     special_tokens_mask = [
         tokenizer.get_special_tokens_mask(val, already_has_special_tokens=True) for val in labels.tolist()
@@ -127,7 +167,10 @@ def mask_tokens(inputs: torch.Tensor, tokenizer: PreTrainedTokenizer, args) -> T
     return inputs, labels
 
 
-def train(args, model_name, train_dataset, device, model: PreTrainedModel, tokenizer: PreTrainedTokenizer) -> Tuple[int, float]:
+def train(
+        args, model_name, output_dir, train_dataset, eval_dataset, device,
+        model: PreTrainedModel, tokenizer: PreTrainedTokenizer,
+) -> Tuple[int, float]:
     """ Train the model """
     if args.local_rank in [-1, 0]:
         tb_writer = SummaryWriter()
@@ -280,7 +323,7 @@ def train(args, model_name, train_dataset, device, model: PreTrainedModel, token
                     if (
                         args.local_rank == -1 and args.evaluate_during_training
                     ):  # Only evaluate when single GPU otherwise metrics may not average well
-                        results = evaluate(args, model, tokenizer)
+                        results = evaluate(args, output_dir, eval_dataset, model, tokenizer)
                         for key, value in results.items():
                             tb_writer.add_scalar("eval_{}".format(key), value, global_step)
                     tb_writer.add_scalar("lr", scheduler.get_lr()[0], global_step)
@@ -320,16 +363,14 @@ def train(args, model_name, train_dataset, device, model: PreTrainedModel, token
     return global_step, tr_loss / global_step
 
 
-def evaluate(args, model: PreTrainedModel, tokenizer: PreTrainedTokenizer, prefix="") -> Dict:
+def evaluate(args, output_dir, eval_dataset, model: PreTrainedModel, tokenizer: PreTrainedTokenizer, prefix="") -> Dict:
     # Loop to handle MNLI double evaluation (matched, mis-matched)
-    eval_output_dir = args.output_dir
-
-    eval_dataset = load_and_cache_examples(args, tokenizer, evaluate=True)
+    eval_output_dir = output_dir
 
     if args.local_rank in [-1, 0]:
         os.makedirs(eval_output_dir, exist_ok=True)
 
-    args.eval_batch_size = args.per_gpu_eval_batch_size * max(1, args.n_gpu)
+    eval_batch_size = args.per_gpu_eval_batch_size * max(1, args.n_gpu)
     # Note that DistributedSampler samples randomly
 
     def collate(examples: List[torch.Tensor]):
@@ -339,7 +380,7 @@ def evaluate(args, model: PreTrainedModel, tokenizer: PreTrainedTokenizer, prefi
 
     eval_sampler = SequentialSampler(eval_dataset)
     eval_dataloader = DataLoader(
-        eval_dataset, sampler=eval_sampler, batch_size=args.eval_batch_size, collate_fn=collate
+        eval_dataset, sampler=eval_sampler, batch_size=eval_batch_size, collate_fn=collate
     )
 
     # multi-gpu evaluate
@@ -349,15 +390,16 @@ def evaluate(args, model: PreTrainedModel, tokenizer: PreTrainedTokenizer, prefi
     # Eval!
     logger.info("***** Running evaluation {} *****".format(prefix))
     logger.info("  Num examples = %d", len(eval_dataset))
-    logger.info("  Batch size = %d", args.eval_batch_size)
+    logger.info("  Batch size = %d", eval_batch_size)
     eval_loss = 0.0
     nb_eval_steps = 0
     model.eval()
 
+    device = get_device(args.local_rank)
     for batch in tqdm(eval_dataloader, desc="Evaluating"):
         inputs, labels = mask_tokens(batch, tokenizer, args) if args.mlm else (batch, batch)
-        inputs = inputs.to(args.device)
-        labels = labels.to(args.device)
+        inputs = inputs.to(device)
+        labels = labels.to(device)
 
         with torch.no_grad():
             outputs = model(inputs, masked_lm_labels=labels) if args.mlm else model(inputs, labels=labels)
@@ -382,7 +424,7 @@ def evaluate(args, model: PreTrainedModel, tokenizer: PreTrainedTokenizer, prefi
 
 def main(
         model_type: str, config_path: str, tokenizer_path: str, model_path: str, train_data_file: str,
-        output_dir: str, local_rank: int=-1, do_eval: bool=False
+        output_dir: str,  eval_data_file: str, local_rank: int=-1
 ):
     config_class, model_class, tokenizer_class = MODEL_CLASSES[model_type]
     if config_path:
@@ -405,10 +447,14 @@ def main(
     train_dataset = load_and_cache_examples(
         tokenizer, block_size, evaluate=False, train_data_file=train_data_file, eval_data_file=None
     )
+    eval_dataset = load_and_cache_examples(
+        tokenizer, block_size, evaluate=True, train_data_file=None, eval_data_file=eval_data_file
+    )
     trainargs = TrainingArgs(
         local_rank=-1,
         train_batch_size=16,
-        per_gpu_train_batch_size=4,
+        per_gpu_train_batch_size=16,
+        per_gpu_eval_batch_size=16,
         n_gpu=1,
         max_steps=-1,
         num_train_epochs=1.0,
@@ -416,15 +462,19 @@ def main(
         learning_rate=5e5,
         adam_epsilon=1e-8,
         seed=42,
+        fp16=False,
         fp16_opt_level="01",
         max_grad_norm=1.0,
-        logging_steps=50,
-        save_steps=100,
+        logging_steps=1000,
+        save_steps=1000,
         mlm=True,
         mlm_probability=0.15,
         evaluate_during_training=True
+
     )
-    global_step, tr_loss = train(trainargs, None, train_dataset, device, model, tokenizer)
+    global_step, tr_loss = train(
+        trainargs, None, output_dir, train_dataset, eval_dataset, device, model, tokenizer
+    )
 
     logger.info(" global_step = %s, average loss = %s", global_step, tr_loss)
 
@@ -432,6 +482,6 @@ def main(
 if __name__ == "__main__":
     main(
         model_type="albert", config_path="../our_training/", tokenizer_path="../wikidata/",
-        model_path="../our_training/", train_data_file="../wikidata/data/AA/wiki_00",
-        output_dir="../selftrained"
+        model_path="../our_training/", train_data_file="../wikidata/sentences-toy.txt",
+        eval_data_file="../wikidata/sentences-toy-eval.txt", output_dir="../selftrained"
     )
