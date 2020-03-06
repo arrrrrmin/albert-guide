@@ -2,43 +2,9 @@
 # For more details on sentencepiece tokenization see: https://github.com/google/sentencepiece
 
 import os
-import re
-import glob
-import json
 import argparse
 import sentencepiece
-from nltk.tokenize import sent_tokenize
-
-
-unwanted_pattern = re.compile(r"""([\t\n\\«])""")
-section_pattern = re.compile(r"""(Section[:]*[A-Za-zAÄÖÜäü ]*)""")
-
-
-def remove_chars(document: str, remove_section: bool = False) -> str:
-    # Some characters aren't very relevant. We want to get rid of those, since
-    # they just add more overhead in our vocabulary later on. Also remove sections,
-    # in case they are also queried in we_need_data.sh
-    document = unwanted_pattern.sub(repl="", string=document)
-    if remove_section:
-        document = section_pattern.sub(repl="", string=document)
-    return document
-
-
-def build_file_from_dir(datadir: str) -> None:
-    # Sentencepiece requires one file to compute the BPE from. We had to do this
-    # anyways, since the download format is json Aggregated file will be written
-    # next to the partial data
-    with open(f"{datadir}/sentences.txt", "a") as txtfile:
-        for filepath in glob.glob(f"{datadir}*/*/*"):
-            if os.path.isdir(filepath):
-                continue
-            print(f"Reading *** {filepath} ***")
-            lines = [line for line in open(filepath, "r")]
-            for line in lines:
-                text = json.loads(line)["text"]
-                text = remove_chars(text, remove_section=True)
-                for sent in sent_tokenize(text, language='german'):
-                    txtfile.write(sent + "\n")
+from experiments.helpers import build_file_from_dir
 
 
 def train_new_tokenizer(
@@ -63,7 +29,7 @@ def train_new_tokenizer(
                     f"--character_coverage=0.99995 --model_type=unigram "
 
     sentencepiece.SentencePieceTrainer.Train(train_command)
-    assert (os.path.isfile(f"{output_model_path}.model"))
+    assert (os.path.isfile(f"{output_model_path}spiece.model"))
 
 
 if __name__ == "__main__":
@@ -75,7 +41,7 @@ if __name__ == "__main__":
     # Skip sentences.txt when already exists.
     if not os.path.isfile(f"{args.datadir}/sentences.txt"):
         # In production this process should be done in parallel using ProcessPooler
-        build_file_from_dir(datadir=args.datadir)
+        build_file_from_dir(datadir=args.datadir, output_dir=args.datadir)
 
     # Finally learn the actual tokenizer model
     train_new_tokenizer(
