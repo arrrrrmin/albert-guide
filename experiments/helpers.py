@@ -37,5 +37,3 @@ def build_file_from_dir(datadir: str, output_dir: str) -> None:
                     sent = remove_section_hints(sent)
                     sent = [s for s in sent if sent]
                     txtfile.write(sent + "\n")
-
-
