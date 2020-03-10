@@ -32,12 +32,16 @@ def load_from_file_or_base(object, path):
 
 
 def plot_reduced_space(reduced_space, names):
-
     fig, ax = plt.subplots()
-    ax.scatter(reduced_space[:, 0], reduced_space[:, 1])
 
+    colors = torch.randint(
+            high=100, size=(1000, 3), dtype=torch.float)/100.
+    print(colors)
+
+    ax.scatter(reduced_space[:, 0], reduced_space[:, 1], c=colors[:])
     for i, txt in enumerate(names):
         ax.annotate(txt, (reduced_space[i, 0], reduced_space[i, 1]))
+
     plt.show()
 
 
