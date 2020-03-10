@@ -36,7 +36,7 @@ def plot_reduced_space(reduced_space, names):
 
     colors = torch.randint(
             high=100, size=(1000, 3), dtype=torch.float)/100.
-    print(colors)
+    logger.info(colors)
 
     ax.scatter(reduced_space[:, 0], reduced_space[:, 1], c=colors[:])
     for i, txt in enumerate(names):
@@ -53,10 +53,10 @@ def main(model_name_or_path, model_type):
     tokenizer = load_from_file_or_base(tokenizer_class, model_name_or_path)
 
     embeddings = model.albert.embeddings
-    print(embeddings)
+    # logger.info(embeddings)
 
     wordembeddings = model.albert.get_input_embeddings()
-    print(wordembeddings)
+    logger.info(wordembeddings)
 
     vocab_word2id = tokenizer.get_vocab()
     word_lookup = {id: key for key, id in vocab_word2id.items()}
@@ -64,12 +64,12 @@ def main(model_name_or_path, model_type):
     n_samples = 1000
     sampled_ids = torch.randint(
         high=len(vocab_word2id.values()), size=(1, n_samples), dtype=torch.long).flatten()
-    print("Sampled ids shape", sampled_ids.shape)
+    logger.info("Sampled ids shape", sampled_ids.shape)
     embedded_vectors = wordembeddings(sampled_ids)
 
     from sklearn.manifold import TSNE
     embedded_reduced = TSNE(n_components=2).fit_transform(embedded_vectors.detach().numpy())
-    print(embedded_reduced)
+    logger.info(embedded_reduced)
 
     names = []
     for sid in sampled_ids:
