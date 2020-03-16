@@ -86,7 +86,13 @@ def main(model_name_or_path, args):
         # for sentence similarity queries.
         # The folloging issue nicly illustrates how to do that:
         # https://github.com/huggingface/transformers/issues/876
-
+        # If we had finetuned this model one could query with the following code,
+        # but without finetuning, you'll always get random results:
+        model = AlbertForSequenceClassification.from_pretrained(model_name_or_path)
+        tokenizer = AlbertTokenizer.from_pretrained(model_name_or_path)
+        inputs = tokenizer.encode_plus(text_a, text_b, add_special_tokens=True, return_tensors='pt')
+        pred = model(inputs['input_ids'], token_type_ids=inputs['token_type_ids'])
+        print(pred)
 
 
 if __name__ == "__main__":
