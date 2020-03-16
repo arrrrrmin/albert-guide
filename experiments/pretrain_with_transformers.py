@@ -364,7 +364,6 @@ def train(
 
 
 def evaluate(args, output_dir, eval_dataset, model: PreTrainedModel, tokenizer: PreTrainedTokenizer, prefix="") -> Dict:
-    # Loop to handle MNLI double evaluation (matched, mis-matched)
     eval_output_dir = output_dir
 
     if args.local_rank in [-1, 0]:
