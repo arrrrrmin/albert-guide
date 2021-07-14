@@ -134,7 +134,7 @@ where each Language just is provided with around 1000 individual tokens.
 For most NLP applications and corpora a `vocab_size` inbetween `20000` to `40000` should be fine.
 The tokenizer itself is trained via:
 
-`python
+```python
 import os
 import logging
 import sentencepiece
@@ -159,7 +159,7 @@ train_command = f"--input={text_filepath} " \
 logging.info(f"Learning SentencePiece tokenizer with following train command: {train_command}")
 sentencepiece.SentencePieceTrainer.Train(train_command)
 assert (os.path.isfile(f"{model_filepath}.model"))
-`
+```
 
 It'll write two files to `--model_prefix`: `tokenizer.model` and the `tokenizer.vocab`. The vocabulary
 has all subtokens and the model is a binary file, to load the model from.
@@ -277,7 +277,7 @@ this:
     * `0` labels the second segment as consecutively
     * `1` labels the second segment as incorrect/*random*
     * Note that `next_sentence_labels` was moved from BERT unchanged
-        * i guess to make it easier for libs like Huggingface a or Spacy to update their code
+        * i guess to make it easier for orgs huggingface/transformers or spacy/transformers to update their code
 
 
 ## Records
@@ -295,6 +295,7 @@ this:
     INFO:tensorflow:masked_lm_ids: 65 2636 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 ... 
     INFO:tensorflow:masked_lm_weights: 1.0 1.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 ...
     INFO:tensorflow:next_sentence_labels: 1
+
 
 `Instances` hold data for MLM and SOP. And are written to `tfrecord`-files. In this case 
 `next_sentence_labels` is refering to *Sentence Order Prediction*.
