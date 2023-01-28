@@ -228,8 +228,8 @@ Labels: [MASK1] = store; [MASK2] = gallon
 `
 
 In reality there is no token named `[MASK1]` or `[MASK2]`. These will be masked with the same token called
-`[MASK]`. In binary elements per token this would look like `[1,1,1,1,1,0,1,1,1,1,0,1,1,1]`. All tokens at
-positions maked with `0` should be predicted, whereas tokens marked with `1` are passed as ids to the model.
+`[MASK]`. In binary elements per token this would look like `[0,0,0,0,0,1,0,0,0,0,1,0,0,0]`. All tokens at
+positions maked with `1` should be predicted, whereas tokens marked with `0` are passed as ids to the model.
 
 Additionally the parameter `masked_lm_prob` tells how many of a sequences available tokens are masked. This is done
 before padding the sequence up to 512, or what ever is set as `max_seq_length`. So `masked_lm_prob` is applied
@@ -340,6 +340,14 @@ In order to use Albert as efficiently as possible I'd recommend to use
 provides many very useful interfaces and functionalities, that make our live easier as NLP developers/researchers.
 The guys at huggingface are very up to date on what's going on and also provide useful advice in case something is 
 unclear. A very nice community.
+
+    TODO: WIP
+
+
+
+
+
+
 
 
 
